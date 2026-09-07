@@ -108,7 +108,13 @@ active_sides = sorted(df_by_scen["active_side"].dropna().unique().tolist())
 selected_side = st.sidebar.selectbox("3. Pilih Sisi Aktif", active_sides)
 
 # Ekstrak rentang waktu spesifik dari sesi yang dipilih
-selected_row = df_by_scen[df_by_scen["active_side"] == selected_side].iloc[0]
+df_filtered_side = df_by_scen[df_by_scen["active_side"] == selected_side]
+
+if df_filtered_side.empty:
+    st.warning("⏳ Menyesuaikan filter... Silakan pastikan pilihan Skenario dan Sisi Aktif sesuai.")
+    st.stop()
+
+selected_row = df_filtered_side.iloc[0]
 real_scenario_id = selected_row["scenario_id"]
 start_time_val = selected_row["start_time"]
 end_time_val = selected_row["end_time"]

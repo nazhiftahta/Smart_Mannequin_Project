@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 sg_env/
 .vscode/
+.streamlit/
 
 # Data CSV (Abaikan folder data berukuran besar)
 data_collected/processed_data/

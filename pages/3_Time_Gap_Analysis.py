@@ -99,7 +99,13 @@ df_by_scen = df_by_subj[df_by_subj["scenario_label"] == selected_label]
 sides = sorted(df_by_scen["active_side"].dropna().unique().tolist())
 selected_side = st.sidebar.selectbox("3. Pilih Sisi Aktif", sides)
 
-selected_row = df_by_scen[df_by_scen["active_side"] == selected_side].iloc[0]
+df_filtered_side = df_by_scen[df_by_scen["active_side"] == selected_side]
+
+if df_filtered_side.empty:
+    st.warning("⏳ Menyesuaikan filter...")
+    st.stop()
+
+selected_row = df_filtered_side.iloc[0]
 real_scenario_id = selected_row["scenario_id"]
 start_time_val = selected_row["start_time"]
 end_time_val = selected_row["end_time"]
