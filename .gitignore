@@ -1,0 +1,15 @@
+# Kredensial & Lingkungan Virtual
+.env
+Secret Keys.txt
+__pycache__/
+.venv/
+sg_env/
+.vscode/
+
+# Data CSV (Abaikan folder data berukuran besar)
+data_collected/processed_data/
+data_collected/sensor_data/
+data_collected/summary_data/
+
+# Catatan: data_collected/cleaning_audit_summary.json tetap akan terunggah 
+# karena tidak kita masukkan ke ignore list ini.

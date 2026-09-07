@@ -1,0 +1,146 @@
+[
+  {
+    "subject_name": "Chika",
+    "filename": "Bahu_Chika.csv",
+    "raw_rows": 38951,
+    "clean_rows": 19733,
+    "dropped_rows": 19218,
+    "idle_rows": 19074,
+    "retention_rate_pct": 50.66
+  },
+  {
+    "subject_name": "Chika",
+    "filename": "Kalibrasi_Chika.csv",
+    "raw_rows": 4928,
+    "clean_rows": 2045,
+    "dropped_rows": 2883,
+    "idle_rows": 2883,
+    "retention_rate_pct": 41.5
+  },
+  {
+    "subject_name": "Chika",
+    "filename": "Lutut_Chika.csv",
+    "raw_rows": 28246,
+    "clean_rows": 10574,
+    "dropped_rows": 17672,
+    "idle_rows": 15468,
+    "retention_rate_pct": 37.44
+  },
+  {
+    "subject_name": "Chika",
+    "filename": "Pinggang_Chika.csv",
+    "raw_rows": 74726,
+    "clean_rows": 35288,
+    "dropped_rows": 39438,
+    "idle_rows": 25408,
+    "retention_rate_pct": 47.22
+  },
+  {
+    "subject_name": "Chika",
+    "filename": "Siku_Chika.csv",
+    "raw_rows": 24804,
+    "clean_rows": 9196,
+    "dropped_rows": 15608,
+    "idle_rows": 15608,
+    "retention_rate_pct": 37.07
+  },
+  {
+    "subject_name": "Tubagus",
+    "filename": "Bahu_Tubagus.csv",
+    "raw_rows": 22696,
+    "clean_rows": 22693,
+    "dropped_rows": 3,
+    "idle_rows": 0,
+    "retention_rate_pct": 99.99
+  },
+  {
+    "subject_name": "Tubagus",
+    "filename": "Kalibrasi_Tubagus.csv",
+    "raw_rows": 2882,
+    "clean_rows": 2881,
+    "dropped_rows": 1,
+    "idle_rows": 0,
+    "retention_rate_pct": 99.97
+  },
+  {
+    "subject_name": "Tubagus",
+    "filename": "Lutut_Tubagus.csv",
+    "raw_rows": 29426,
+    "clean_rows": 11651,
+    "dropped_rows": 17775,
+    "idle_rows": 17580,
+    "retention_rate_pct": 39.59
+  },
+  {
+    "subject_name": "Tubagus",
+    "filename": "Pinggang_Tubagus.csv",
+    "raw_rows": 80509,
+    "clean_rows": 43289,
+    "dropped_rows": 37220,
+    "idle_rows": 33899,
+    "retention_rate_pct": 53.77
+  },
+  {
+    "subject_name": "Tubagus",
+    "filename": "Siku_Tubagus.csv",
+    "raw_rows": 11122,
+    "clean_rows": 11074,
+    "dropped_rows": 48,
+    "idle_rows": 0,
+    "retention_rate_pct": 99.57
+  },
+  {
+    "subject_name": "Yusuf",
+    "filename": "B1_B2_B3_Yusuf.csv",
+    "raw_rows": 7076,
+    "clean_rows": 0,
+    "dropped_rows": 7076,
+    "idle_rows": 3387,
+    "retention_rate_pct": 0.0
+  },
+  {
+    "subject_name": "Yusuf",
+    "filename": "Bahu_Yusuf.csv",
+    "raw_rows": 19462,
+    "clean_rows": 18699,
+    "dropped_rows": 763,
+    "idle_rows": 0,
+    "retention_rate_pct": 96.08
+  },
+  {
+    "subject_name": "Yusuf",
+    "filename": "Kalibrasi_Yusuf.csv",
+    "raw_rows": 5251,
+    "clean_rows": 1981,
+    "dropped_rows": 3270,
+    "idle_rows": 3270,
+    "retention_rate_pct": 37.73
+  },
+  {
+    "subject_name": "Yusuf",
+    "filename": "Lutut_Yusuf.csv",
+    "raw_rows": 12423,
+    "clean_rows": 11944,
+    "dropped_rows": 479,
+    "idle_rows": 0,
+    "retention_rate_pct": 96.14
+  },
+  {
+    "subject_name": "Yusuf",
+    "filename": "Pinggang_Yusuf.csv",
+    "raw_rows": 44219,
+    "clean_rows": 44219,
+    "dropped_rows": 0,
+    "idle_rows": 0,
+    "retention_rate_pct": 100.0
+  },
+  {
+    "subject_name": "Yusuf",
+    "filename": "Siku_Yusuf.csv",
+    "raw_rows": 9883,
+    "clean_rows": 9883,
+    "dropped_rows": 0,
+    "idle_rows": 0,
+    "retention_rate_pct": 100.0
+  }
+]
