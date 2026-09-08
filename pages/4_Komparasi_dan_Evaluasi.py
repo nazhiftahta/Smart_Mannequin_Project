@@ -5,6 +5,7 @@ import plotly.express as px
 from supabase import create_client, Client
 
 st.set_page_config(page_title="Komparasi & Evaluasi - Smart Mannequin", layout="wide")
+
 VOLTAGE_COLS = [f"s{i}_volt" for i in range(1, 9)]
 RESISTANCE_COLS = [f"s{i}_res" for i in range(1, 9)]
 ALL_SENSOR_COLS = VOLTAGE_COLS + RESISTANCE_COLS
@@ -95,19 +96,21 @@ with tab1:
     c_scen, c_side, c_sens = st.columns(3)
     
     with c_scen:
-        sensor_choice = st.selectbox("3. Pilih Sensor:", ALL_SENSOR_COLS, index=0, key="cross_sens")
+        scenarios_all = sorted(df_summary["scenario_label"].dropna().unique().tolist())
+        scen_compare = st.selectbox("1. Pilih Skenario:", scenarios_all, key="cross_scen")
     with c_side:
         df_scen_sub = df_summary[df_summary["scenario_label"] == scen_compare]
         sides_all = sorted(df_scen_sub["active_side"].dropna().unique().tolist())
         side_compare = st.selectbox("2. Pilih Sisi Aktif:", sides_all, key="cross_side")
     with c_sens:
-        sensor_choice = st.selectbox("3. Pilih Sensor:", VOLTAGE_COLS, index=0, key="cross_sens")
+        sensor_choice = st.selectbox("3. Pilih Sensor:", ALL_SENSOR_COLS, index=0, key="cross_sens")
 
     avail_subjects = sorted(df_scen_sub[df_scen_sub["active_side"] == side_compare]["subject_name"].dropna().unique().tolist())
     selected_subjects = st.multiselect("Pilih Subjek yang Ingin Dibandingkan:", avail_subjects, default=avail_subjects)
 
     if selected_subjects:
-        # (Kode px.bar durasi aktual ...)
+        df_cross_summary = df_scen_sub[(df_scen_sub["active_side"] == side_compare) & (df_scen_sub["subject_name"].isin(selected_subjects))]
+        st.plotly_chart(px.bar(df_cross_summary, x="subject_name", y="actual_duration_sec", color="subject_name", text_auto=".1f", title=f"Durasi Aktual — {scen_compare} ({side_compare})", template="plotly_white"), use_container_width=True)
 
         st.markdown(f"#### Penyelarasan Sinyal {sensor_choice.upper()} Antar-Individu")
         fig_cross_signals = go.Figure()
@@ -129,8 +132,9 @@ with tab1:
         fig_cross_signals.update_layout(title=f"Kurva {sensor_choice.upper()} Skenario {scen_compare}", xaxis_title="Waktu Berjalan (s)", yaxis_title=y_axis_name, hovermode="x unified", template="plotly_white", height=480)
         st.plotly_chart(fig_cross_signals, use_container_width=True)
 
+
 # ==============================================================================
-# TAB 2 & 3: BILATERAL DAN FATIGUE
+# TAB 2: BILATERAL
 # ==============================================================================
 with tab2:
     st.subheader("Perbandingan Sisi Kiri vs Kanan")
@@ -162,7 +166,11 @@ with tab2:
                 st.plotly_chart(px.bar(df_sides, x="active_side", y="actual_duration_sec", color="active_side", text_auto=".1f", title="Durasi Aktual (detik)", template="plotly_white"), use_container_width=True)
             with col_kpi2: 
                 st.plotly_chart(px.bar(df_sides, x="active_side", y="repetition", color="active_side", title="Total Repetisi", template="plotly_white"), use_container_width=True)
-                
+
+
+# ==============================================================================
+# TAB 3: FATIGUE
+# ==============================================================================
 with tab3:
     st.subheader("Evaluasi Penurunan Amplitudo Antar-Repetisi")
     subj_tab3 = st.selectbox("Pilih Subjek:", sorted(df_summary["subject_name"].dropna().unique().tolist()), key="t3_s")
@@ -203,11 +211,10 @@ with tab3:
                 df_eval = df_fatigue_raw.copy()
                 df_eval["auto_rep"] = pd.cut(df_eval.index, bins=int(expected_reps), labels=False) + 1
             else:
-                df_eval = pd.DataFrame()
+                df_eval = pd.DataFrame() 
         
         # --- MULAI PLOTTING ---
         if not df_eval.empty and len(df_eval["auto_rep"].unique()) >= 2:
-            # Ubah VOLTAGE_COLS menjadi ALL_SENSOR_COLS
             sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", ALL_SENSOR_COLS, index=0, key="s_fatigue")
             df_eval["Repetisi_Label"] = "Repetisi " + df_eval["auto_rep"].astype(str)
             
