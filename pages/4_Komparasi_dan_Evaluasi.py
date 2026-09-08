@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from supabase import create_client, Client
+from ai_helper import render_sensor_placement, analyze_chart_with_vision
 
 st.set_page_config(page_title="Komparasi & Evaluasi - Smart Mannequin", layout="wide")
 
@@ -63,13 +64,11 @@ def fetch_summary_data() -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def fetch_raw_subset(subject: str, scenario: str, side: str, start_t: str, end_t: str) -> pd.DataFrame:
     filters = {"subject_name": subject, "scenario_id": scenario, "active_side": side}
-    # Gunakan ALL_SENSOR_COLS agar tegangan dan resistansi ikut terpanggil
     cols = "timestamp, repetition, state, " + ", ".join(ALL_SENSOR_COLS)
     rows = _fetch_paginated("raw_sensor_data", filters=filters, start_t=start_t, end_t=end_t, select_cols=cols)
     df = pd.DataFrame(rows)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        # Konversi numerik untuk semua kolom sensor
         for col in ALL_SENSOR_COLS + ["repetition"]:
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
         return df.sort_values("timestamp").reset_index(drop=True)
@@ -93,6 +92,7 @@ tab1, tab2, tab3 = st.tabs([
 # ==============================================================================
 with tab1:
     st.subheader("Perbandingan Respons Sensor Antar-Individu")
+    render_sensor_placement()
     c_scen, c_side, c_sens = st.columns(3)
     
     with c_scen:
@@ -115,29 +115,55 @@ with tab1:
         st.markdown(f"#### Penyelarasan Sinyal {sensor_choice.upper()} Antar-Individu")
         fig_cross_signals = go.Figure()
     
-        # Buat label dinamis (V atau Ohm)
         unit_label = "V" if "volt" in sensor_choice else "Ohm"
         y_axis_name = "Tegangan (V)" if "volt" in sensor_choice else "Resistansi (Ohm)"
     
+        subject_stats_dict = {}
         with st.spinner("Memuat dan menyelaraskan data sensor..."):
             for subj in selected_subjects:
                 subj_info = df_cross_summary[df_cross_summary["subject_name"] == subj].iloc[0]
                 df_raw_s = fetch_raw_subset(subj, subj_info["scenario_id"], side_compare, subj_info["start_time"], subj_info["end_time"])
                 if not df_raw_s.empty and sensor_choice in df_raw_s.columns:
                     elapsed_sec = (df_raw_s["timestamp"] - df_raw_s["timestamp"].iloc[0]).dt.total_seconds()
-                    # Pasang label dinamis di hovertemplate
                     fig_cross_signals.add_trace(go.Scatter(x=elapsed_sec, y=df_raw_s[sensor_choice], mode="lines", name=subj, hovertemplate=f"Detik %{{x:.1f}}: %{{y:.2f}} {unit_label}"))
+                    
+                    subject_stats_dict[subj] = {
+                        "durasi_detik": round(float(df_cross_summary[df_cross_summary["subject_name"] == subj]["actual_duration_sec"].iloc[0]), 2),
+                        "nilai_maks": round(float(df_raw_s[sensor_choice].max()), 3),
+                        "nilai_min": round(float(df_raw_s[sensor_choice].min()), 3),
+                        "rentang_dinamis": round(float(df_raw_s[sensor_choice].max() - df_raw_s[sensor_choice].min()), 3)
+                    }
     
-        # Pasang nama sumbu Y dinamis
         fig_cross_signals.update_layout(title=f"Kurva {sensor_choice.upper()} Skenario {scen_compare}", xaxis_title="Waktu Berjalan (s)", yaxis_title=y_axis_name, hovermode="x unified", template="plotly_white", height=480)
         st.plotly_chart(fig_cross_signals, use_container_width=True)
 
+        col_ai_t1, _ = st.columns([2, 4])
+        with col_ai_t1:
+            btn_cross_ai = st.button("✨ Minta Penjelasan AI untuk Tim IoT", key="btn_cross_ai")
+        
+        if btn_cross_ai:
+            with st.spinner("🤖 AI sedang membandingkan variabilitas kurva antar-subjek dan kecocokannya pada mannequin..."):
+                cross_payload = {
+                    "skenario": scen_compare,
+                    "sisi_aktif": side_compare,
+                    "sensor_diuji": sensor_choice,
+                    "satuan": unit_label,
+                    "statistik_per_subjek": subject_stats_dict
+                }
+                insight_cross = analyze_chart_with_vision(
+                    fig=fig_cross_signals,
+                    chart_title=f"Penyelarasan Sinyal {sensor_choice.upper()} Antar-Individu ({scen_compare})",
+                    stats_context=cross_payload
+                )
+                st.info("### 📋 Evaluasi Variabilitas Antar-Subjek (AI Vision)")
+                st.markdown(insight_cross)
 
 # ==============================================================================
 # TAB 2: BILATERAL
 # ==============================================================================
 with tab2:
     st.subheader("Perbandingan Sisi Kiri vs Kanan")
+    render_sensor_placement()
     c_s2, c_sc2 = st.columns(2)
     
     with c_s2: 
@@ -145,34 +171,52 @@ with tab2:
     
     df_subj2 = df_summary[df_summary["subject_name"] == subj_tab2]
     
-    # Memfilter dataframe agar hanya menyisakan skenario yang mengandung Kiri/Kanan
     df_bilateral_only = df_subj2[df_subj2["active_side"].isin(["Kiri", "Kanan"])]
     bilateral_scenarios = sorted(df_bilateral_only["scenario_label"].dropna().unique().tolist())
     
     with c_sc2:
-        # Peringatan jika subjek tidak memiliki data bilateral sama sekali
         if not bilateral_scenarios:
             st.warning("Subjek ini belum memiliki data skenario Kiri/Kanan.")
             scen_tab2 = None
         else:
             scen_tab2 = st.selectbox("Pilih Skenario:", bilateral_scenarios, key="t2_sc")
 
-    # Hanya render grafik jika ada skenario yang terpilih
     if scen_tab2:
         df_sides = df_subj2[df_subj2["scenario_label"] == scen_tab2]
         if not df_sides.empty:
             col_kpi1, col_kpi2 = st.columns(2)
             with col_kpi1: 
-                st.plotly_chart(px.bar(df_sides, x="active_side", y="actual_duration_sec", color="active_side", text_auto=".1f", title="Durasi Aktual (detik)", template="plotly_white"), use_container_width=True)
+                fig_bi_dur = px.bar(df_sides, x="active_side", y="actual_duration_sec", color="active_side", text_auto=".1f", title="Durasi Aktual (detik)", template="plotly_white")
+                st.plotly_chart(fig_bi_dur, use_container_width=True)
             with col_kpi2: 
-                st.plotly_chart(px.bar(df_sides, x="active_side", y="repetition", color="active_side", title="Total Repetisi", template="plotly_white"), use_container_width=True)
+                fig_bi_rep = px.bar(df_sides, x="active_side", y="repetition", color="active_side", title="Total Repetisi", template="plotly_white")
+                st.plotly_chart(fig_bi_rep, use_container_width=True)
 
+            col_ai_t2, _ = st.columns([2, 4])
+            with col_ai_t2:
+                btn_bi_ai = st.button("✨ Minta Penjelasan AI untuk Tim IoT", key="btn_bi_ai")
+            
+            if btn_bi_ai:
+                with st.spinner("🤖 AI sedang menganalisis simetri biomekanis dan keseimbangan gerakan..."):
+                    bi_payload = {
+                        "subjek": subj_tab2,
+                        "skenario": scen_tab2,
+                        "data_komparasi": df_sides[["active_side", "actual_duration_sec", "repetition"]].to_dict(orient="records")
+                    }
+                    insight_bi = analyze_chart_with_vision(
+                        fig=fig_bi_dur,
+                        chart_title=f"Evaluasi Keseimbangan Bilateral Kiri vs Kanan ({subj_tab2})",
+                        stats_context=bi_payload
+                    )
+                    st.info("### 📋 Analisis Simetri Bilateral (AI Vision)")
+                    st.markdown(insight_bi)
 
 # ==============================================================================
 # TAB 3: FATIGUE
 # ==============================================================================
 with tab3:
     st.subheader("Evaluasi Penurunan Amplitudo Antar-Repetisi")
+    render_sensor_placement()
     subj_tab3 = st.selectbox("Pilih Subjek:", sorted(df_summary["subject_name"].dropna().unique().tolist()), key="t3_s")
     df_subj3 = df_summary[df_summary["subject_name"] == subj_tab3]
     scen_tab3 = st.selectbox("Pilih Skenario:", sorted(df_subj3["scenario_label"].dropna().unique().tolist()), key="t3_sc")
@@ -182,7 +226,6 @@ with tab3:
 
     df_fatigue_side = df_fatigue_meta[df_fatigue_meta["active_side"] == side_tab3]
     
-    # Pengaman transisi filter
     if df_fatigue_side.empty:
         st.warning("⏳ Menyesuaikan filter...")
         st.stop()
@@ -191,7 +234,6 @@ with tab3:
     df_fatigue_raw = fetch_raw_subset(subj_tab3, selected_f_row["scenario_id"], side_tab3, selected_f_row["start_time"], selected_f_row["end_time"])
     
     if not df_fatigue_raw.empty:
-        # 1. Bersihkan teks state dari spasi tak kasat mata & huruf besar/kecil
         if "state" in df_fatigue_raw.columns:
             clean_state = df_fatigue_raw["state"].fillna("").astype(str).str.strip().str.upper()
             is_run = clean_state == "RUN"
@@ -201,19 +243,14 @@ with tab3:
         else:
             df_eval = pd.DataFrame()
         
-        # 2. FALLBACK PLAN: Jika pemotongan 'RUN' gagal atau tidak ada fase istirahat
         if df_eval.empty or len(df_eval["auto_rep"].unique()) < 2:
-            # Konversi paksa ke tipe data numerik agar bisa dibandingkan
             expected_reps = pd.to_numeric(selected_f_row.get("repetition", 0), errors="coerce")
-            
             if pd.notna(expected_reps) and expected_reps >= 2:
-                # Potong data mentah secara merata berdasarkan waktu/baris
                 df_eval = df_fatigue_raw.copy()
                 df_eval["auto_rep"] = pd.cut(df_eval.index, bins=int(expected_reps), labels=False) + 1
             else:
                 df_eval = pd.DataFrame() 
         
-        # --- MULAI PLOTTING ---
         if not df_eval.empty and len(df_eval["auto_rep"].unique()) >= 2:
             sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", ALL_SENSOR_COLS, index=0, key="s_fatigue")
             df_eval["Repetisi_Label"] = "Repetisi " + df_eval["auto_rep"].astype(str)
@@ -233,7 +270,7 @@ with tab3:
             rep_stats["Repetisi_Label"] = "Repetisi " + rep_stats["auto_rep"].astype(str)
             
             st.markdown("#### 2. Evaluasi Penurunan Kinerja (Fatigue Trend)")
-            st.caption("Grafik ini mengukur rentang amplitudo (Maksimum - Minimum) dari tiap tarikan. Garis menurun menunjukkan pelemahan otot.")
+            st.caption("Grafik ini mengukur rentang amplitudo (Maksimum - Minimum) dari tiap tarikan. Garis menurun menunjukkan pelemahan gaya tarik atau efek hysteresis sensor.")
             
             fig_trend = px.line(
                 rep_stats, x="Repetisi_Label", y="Rentang_Amplitudo", 
@@ -244,6 +281,28 @@ with tab3:
             fig_trend.update_traces(marker=dict(size=10, color="red"), line=dict(dash="dot", color="gray"))
             st.plotly_chart(fig_trend, use_container_width=True)
             
+            col_ai_btn, _ = st.columns([2, 4])
+            with col_ai_btn:
+                btn_fatigue_ai = st.button("✨ Minta Penjelasan AI untuk Tim IoT", key="btn_fatigue_ai")
+            
+            if btn_fatigue_ai:
+                with st.spinner("🤖 AI sedang membaca bentuk gelombang grafik dan menghitung degradasi sinyal..."):
+                    stats_summary = {
+                        "nama_sensor": sensor_eval,
+                        "total_repetisi": len(rep_stats),
+                        "amplitudo_awal": round(float(rep_stats["Rentang_Amplitudo"].iloc[0]), 3),
+                        "amplitudo_akhir": round(float(rep_stats["Rentang_Amplitudo"].iloc[-1]), 3),
+                        "selisih_amplitudo": round(float(rep_stats["Rentang_Amplitudo"].iloc[0] - rep_stats["Rentang_Amplitudo"].iloc[-1]), 3),
+                        "detail_per_repetisi": rep_stats[["Repetisi_Label", "Rentang_Amplitudo"]].to_dict(orient="records")
+                    }
+                    
+                    insight_result = analyze_chart_with_vision(
+                        fig=fig_trend, 
+                        chart_title=f"Evaluasi Kelelahan {sensor_eval.upper()} ({subj_tab3})", 
+                        stats_context=stats_summary
+                    )
+                    st.info("### 📋 Temuan & Catatan Teknis (AI Vision)")
+                    st.markdown(insight_result)
         else:
             st.info("Tidak dapat memisahkan repetisi. Pastikan skenario ini memang memiliki instruksi repetisi > 1.")
     else:

@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from supabase import create_client, Client
+from ai_helper import render_sensor_placement, analyze_chart_with_vision
 
 st.set_page_config(
     page_title="EDA - Smart Mannequin",
@@ -51,7 +52,6 @@ def fetch_summary_data() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def fetch_raw_sample(subject: str) -> pd.DataFrame:
-    # Meminta Supabase HANYA mengirimkan data milik subjek yang dipilih
     res = supabase.table("raw_sensor_data").select(
         "subject_name,s1,s2,s3,s4,s5,s6,s7,s8,s1_volt,s2_volt,s3_volt,s4_volt,s5_volt,s6_volt,s7_volt,s8_volt"
     ).eq("subject_name", subject).limit(10000).execute() 
@@ -110,7 +110,6 @@ if os.path.exists(AUDIT_FILE):
         total_idle = int(df_audit["idle_rows"].sum())
         overall_retention = (total_clean / total_raw * 100) if total_raw > 0 else 0.0
 
-        # Layout Simetris Menggunakan st.container berbingkai (border)
         col_left, col_right = st.columns(2)
 
         with col_left:
@@ -135,7 +134,6 @@ if os.path.exists(AUDIT_FILE):
 
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
 
-        # Diagram batang komparasi volume per subjek
         df_sub_audit = df_audit.groupby("subject_name").agg(
             Mentah=("raw_rows", "sum"),
             Bersih=("clean_rows", "sum")
@@ -218,16 +216,16 @@ with col_chart2:
 st.markdown("---")
 
 # =====================================================================
-# GANTI SELURUH BLOK 4 DENGAN KODE INI
+# 4. MATRIKS KORELASI ANTAR-CHANNEL SENSOR
 # =====================================================================
 st.subheader("4. Matriks Korelasi Antar-Channel Sensor (8-Channel)")
 st.caption("Dihitung dari sampel 10.000 titik data mentah per subjek untuk mendeteksi hubungan linier antar-sensor.")
 
-# 1. Ambil daftar subjek dari df_summary (pasti lengkap karena datanya kecil)
+render_sensor_placement()
+
 if not df_summary.empty and "subject_name" in df_summary.columns:
     list_subjects = sorted(df_summary["subject_name"].dropna().unique().tolist())
     
-    # 2. Render UI Kontrol Filter
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
         selected_subject = st.selectbox("Pilih Subjek:", list_subjects)
@@ -239,11 +237,9 @@ if not df_summary.empty and "subject_name" in df_summary.columns:
             horizontal=True,
         )
 
-    # 3. Fetch data mentah HANYA untuk subjek yang dipilih
     with st.spinner(f"Memuat sampel data sensor untuk {selected_subject}..."):
         df_raw_subject = fetch_raw_sample(selected_subject)
 
-    # 4. Hitung & Gambar Matriks
     if not df_raw_subject.empty:
         if "Resistansi" in corr_type:
             target_cols = [f"s{i}" for i in range(1, 9)]
@@ -253,10 +249,8 @@ if not df_summary.empty and "subject_name" in df_summary.columns:
         valid_cols = [c for c in target_cols if c in df_raw_subject.columns]
         
         if valid_cols:
-            # Karena limit sudah 10.000 di API, kita bisa langsung hitung
             corr_matrix = df_raw_subject[valid_cols].corr()
 
-            # Render grafik Plotly
             fig_corr = px.imshow(
                 corr_matrix,
                 text_auto=".2f",
@@ -267,6 +261,41 @@ if not df_summary.empty and "subject_name" in df_summary.columns:
             )
             fig_corr.update_layout(height=480)
             st.plotly_chart(fig_corr, use_container_width=True)
+
+            # --- FITUR AI EVALUASI TATA LETAK SENSOR ---
+            col_ai_eda, _ = st.columns([2, 4])
+            with col_ai_eda:
+                btn_corr_ai = st.button("✨ Minta Penjelasan AI untuk Tim IoT", key="btn_ai_corr")
+
+            if btn_corr_ai:
+                with st.spinner("🤖 AI sedang membaca pola korelasi dan mengevaluasi tata letak sensor di mannequin..."):
+                    # Ekstrak pasangan sensor penting
+                    corr_unstack = corr_matrix.unstack()
+                    corr_pairs = corr_unstack[corr_unstack.index.get_level_values(0) != corr_unstack.index.get_level_values(1)]
+                    
+                    highest_pos = corr_pairs.sort_values(ascending=False).head(6)
+                    lowest_or_neg = corr_pairs.sort_values().head(6)
+
+                    # Ambil sampel unik (lewati duplikat A-B dan B-A)
+                    top_pos_dict = {f"{k[0].upper()} & {k[1].upper()}": round(float(v), 3) for k, v in highest_pos.items()}[::2]
+                    top_neg_dict = {f"{k[0].upper()} & {k[1].upper()}": round(float(v), 3) for k, v in lowest_or_neg.items()}[::2]
+
+                    corr_payload = {
+                        "subjek": selected_subject,
+                        "domain_sensor": corr_type,
+                        "jumlah_sampel_evaluasi": len(df_raw_subject),
+                        "pasangan_korelasi_positif_tertinggi": top_pos_dict,
+                        "pasangan_korelasi_terendah_atau_negatif": top_neg_dict,
+                        "konteks_hardware": "Korelasi > 0.85 menandakan sensor membaca regangan elastis yang identik (potensi redundansi fisik). Korelasi mendekati 0 menandakan sensor mengisolasi derajat kebebasan (DoF) gerak yang berbeda secara mandiri."
+                    }
+
+                    insight_corr = analyze_chart_with_vision(
+                        fig=fig_corr,
+                        chart_title=f"Matriks Korelasi Sensor 8-Channel ({selected_subject} - {corr_type})",
+                        stats_context=corr_payload
+                    )
+                    st.info("### 📋 Evaluasi Penempatan & Redundansi Sensor (AI Vision)")
+                    st.markdown(insight_corr)
         else:
             st.warning(f"Data kolom sensor tidak lengkap untuk {selected_subject}.")
     else:

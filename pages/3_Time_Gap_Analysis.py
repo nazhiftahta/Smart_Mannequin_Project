@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from supabase import create_client, Client
+from ai_helper import render_sensor_placement, analyze_chart_with_vision
 
 st.set_page_config(
     page_title="Time Gap Analysis - Smart Mannequin",
@@ -50,7 +51,6 @@ def fetch_summary_data() -> pd.DataFrame:
     rows = _fetch_paginated("summary_session_data", filters={}, order_col="start_time")
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Perbaikan: Pemetaan bagian tubuh berdasarkan ID yang benar (B, E, P, K, F)
         def map_body_part(sid):
             if pd.isna(sid): return "Lainnya"
             sid_upper = str(sid).upper()
@@ -84,6 +84,8 @@ def fetch_raw_timestamps_macro(subject: str, start_t: str, end_t: str) -> pd.Dat
 st.title("Diagnostik Jeda Waktu (Time Gap Analysis)")
 st.caption("Deteksi otomatis anomali jeda waktu pengiriman data Arduino secara makro per bagian tubuh.")
 
+render_sensor_placement()
+
 summary_df = fetch_summary_data()
 if summary_df.empty:
     st.warning("Data sesi tidak ditemukan di database.")
@@ -96,7 +98,6 @@ selected_subject = st.sidebar.selectbox("1. Pilih Subjek", subjects)
 
 df_by_subj = summary_df[summary_df["subject_name"] == selected_subject]
 
-# Patenkan daftar bagian tubuh yang benar agar selalu muncul di dropdown
 ALL_BODY_PARTS = [
     "Bahu (Semua B)", 
     "Siku (Semua E)", 
@@ -141,9 +142,13 @@ total_gaps = len(gap_events)
 m1.metric("Total Jeda Terdeteksi", f"{total_gaps} kali")
 
 if total_gaps > 0:
-    m2.metric("Jeda Terlama", f"{gap_events['time_diff_sec'].max():.2f} detik")
-    m3.metric("Total Akumulasi Waktu Berhenti", f"{gap_events['time_diff_sec'].sum():.1f} detik")
+    max_gap_val = float(gap_events['time_diff_sec'].max())
+    sum_gap_val = float(gap_events['time_diff_sec'].sum())
+    m2.metric("Jeda Terlama", f"{max_gap_val:.2f} detik")
+    m3.metric("Total Akumulasi Waktu Berhenti", f"{sum_gap_val:.1f} detik")
 else:
+    max_gap_val = 0.0
+    sum_gap_val = 0.0
     m2.metric("Jeda Terlama", "0.00 detik")
     m3.metric("Total Akumulasi Waktu Berhenti", "0.0 detik")
 
@@ -160,6 +165,33 @@ if total_gaps > 0:
 fig_gap.update_layout(height=420, hovermode="x unified")
 st.plotly_chart(fig_gap, use_container_width=True)
 
+# --- FITUR AI HARDWARE & TIME-GAP INSIGHT ---
+col_ai_time, _ = st.columns([2, 4])
+with col_ai_time:
+    btn_timegap_ai = st.button("✨ Minta Penjelasan AI untuk Tim IoT", key="btn_ai_timegap")
+
+if btn_timegap_ai:
+    with st.spinner("🤖 AI sedang memeriksa kestabilan baudrate, serial Arduino, dan pola jeda transmisi..."):
+        timegap_stats = {
+            "subjek": selected_subject,
+            "bagian_tubuh": selected_part,
+            "threshold_gap_detik": gap_threshold_sec,
+            "median_sampling_normal_detik": round(float(normal_sampling_median), 4) if pd.notna(normal_sampling_median) else 0.0,
+            "total_gap_terdeteksi": total_gaps,
+            "jeda_terlama_detik": round(max_gap_val, 2),
+            "total_durasi_berhenti_detik": round(sum_gap_val, 2),
+            "state_saat_gap": gap_events["state"].value_counts().to_dict() if total_gaps > 0 and "state" in gap_events.columns else {}
+        }
+        
+        insight_timegap = analyze_chart_with_vision(
+            fig=fig_gap,
+            chart_title=f"Diagnostik Jeda Serial Arduino — {selected_subject} ({selected_part})",
+            stats_context=timegap_stats
+        )
+        st.info("### 📋 Temuan & Diagnostik Transmisi Data (AI Vision)")
+        st.markdown(insight_timegap)
+
+st.markdown("---")
 if total_gaps > 0:
     log_records = []
     for idx, row in gap_events.iterrows():

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from supabase import create_client, Client
+from ai_helper import render_sensor_placement, analyze_chart_with_vision
 
 st.set_page_config(
     page_title="Analisis Sensor - Smart Mannequin",
@@ -28,7 +29,6 @@ def _fetch_paginated(table_name: str, filters: dict, start_t: str = None, end_t:
             if val is not None:
                 query = query.eq(col, val)
                 
-        # Filter spesifik berdasarkan rentang waktu sesi
         if start_t and end_t:
             query = query.gte("timestamp", start_t).lte("timestamp", end_t)
             
@@ -89,6 +89,8 @@ def fetch_raw_data(subject: str, scenario: str, side: str, start_t: str, end_t: 
 st.title("Analisis Sinyal Sensor 8-Channel")
 st.caption("Eksplorasi sinyal fisik time-series, reduksi noise (smoothing), dan pemetaan fase gerak.")
 
+render_sensor_placement()
+
 summary_df = fetch_summary_data()
 if summary_df.empty:
     st.warning("Data summary kosong. Tidak dapat memuat opsi filter.")
@@ -107,7 +109,6 @@ df_by_scen = df_by_subj[df_by_subj["scenario_label"] == selected_label]
 active_sides = sorted(df_by_scen["active_side"].dropna().unique().tolist())
 selected_side = st.sidebar.selectbox("3. Pilih Sisi Aktif", active_sides)
 
-# Ekstrak rentang waktu spesifik dari sesi yang dipilih
 df_filtered_side = df_by_scen[df_by_scen["active_side"] == selected_side]
 
 if df_filtered_side.empty:
@@ -169,6 +170,47 @@ fig.update_layout(
 fig.update_xaxes(rangeslider_visible=True)
 st.plotly_chart(fig, use_container_width=True)
 
+# --- FITUR AI HARDWARE & TIME-SERIES INSIGHT ---
+col_ai_s2, _ = st.columns([2, 4])
+with col_ai_s2:
+    btn_s2_ai = st.button("✨ Minta Penjelasan AI untuk Tim IoT", key="btn_sensor_page_ai")
+
+if btn_s2_ai:
+    with st.spinner("🤖 AI sedang menganalisis kurva 8-channel, kestabilan tegangan, dan respons mekanik sensor..."):
+        sensor_stats = {}
+        for col in available_cols:
+            s_series = raw_df[col].dropna()
+            if not s_series.empty:
+                sensor_stats[col.upper()] = {
+                    "min": round(float(s_series.min()), 2),
+                    "max": round(float(s_series.max()), 2),
+                    "delta (rentang kerja)": round(float(s_series.max() - s_series.min()), 2),
+                    "rata-rata": round(float(s_series.mean()), 2),
+                    "standar_deviasi": round(float(s_series.std()), 2)
+                }
+
+        sensor_payload = {
+            "subjek": selected_subject,
+            "skenario": selected_label,
+            "sisi_aktif": selected_side,
+            "domain_sinyal": metric_type,
+            "smoothing_aktif": apply_smoothing,
+            "ukuran_window": window_size if apply_smoothing else 1,
+            "total_sampel_data": len(raw_df),
+            "durasi_sesi_detik": round((raw_df["timestamp"].iloc[-1] - raw_df["timestamp"].iloc[0]).total_seconds(), 2) if len(raw_df) > 1 else 0,
+            "distribusi_fase": raw_df["state"].value_counts().to_dict() if "state" in raw_df.columns else {},
+            "metrik_per_sensor": sensor_stats
+        }
+
+        insight_sensor = analyze_chart_with_vision(
+            fig=fig,
+            chart_title=f"Time-Series Sinyal 8-Channel ({selected_subject} - {selected_label} - {selected_side})",
+            stats_context=sensor_payload
+        )
+        st.info("### 📋 Evaluasi Respons Sinyal & Hardware (AI Vision)")
+        st.markdown(insight_sensor)
+
+st.markdown("---")
 with st.expander("Inspeksi Cuplikan Data Sensor (Maksimal 500 Baris)"):
     display_cols = ["timestamp"] + available_cols + (["state"] if "state" in raw_df.columns else [])
     st.dataframe(raw_df[display_cols].head(500), use_container_width=True)
