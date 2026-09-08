@@ -128,17 +128,34 @@ with tab1:
 with tab2:
     st.subheader("Perbandingan Sisi Kiri vs Kanan")
     c_s2, c_sc2 = st.columns(2)
-    with c_s2: subj_tab2 = st.selectbox("Pilih Subjek:", sorted(df_summary["subject_name"].dropna().unique().tolist()), key="t2_s")
+    
+    with c_s2: 
+        subj_tab2 = st.selectbox("Pilih Subjek:", sorted(df_summary["subject_name"].dropna().unique().tolist()), key="t2_s")
+    
+    df_subj2 = df_summary[df_summary["subject_name"] == subj_tab2]
+    
+    # Memfilter dataframe agar hanya menyisakan skenario yang mengandung Kiri/Kanan
+    df_bilateral_only = df_subj2[df_subj2["active_side"].isin(["Kiri", "Kanan"])]
+    bilateral_scenarios = sorted(df_bilateral_only["scenario_label"].dropna().unique().tolist())
+    
     with c_sc2:
-        df_subj2 = df_summary[df_summary["subject_name"] == subj_tab2]
-        scen_tab2 = st.selectbox("Pilih Skenario:", sorted(df_subj2["scenario_label"].dropna().unique().tolist()), key="t2_sc")
+        # Peringatan jika subjek tidak memiliki data bilateral sama sekali
+        if not bilateral_scenarios:
+            st.warning("Subjek ini belum memiliki data skenario Kiri/Kanan.")
+            scen_tab2 = None
+        else:
+            scen_tab2 = st.selectbox("Pilih Skenario:", bilateral_scenarios, key="t2_sc")
 
-    df_sides = df_subj2[df_subj2["scenario_label"] == scen_tab2]
-    if not df_sides.empty:
-        col_kpi1, col_kpi2 = st.columns(2)
-        with col_kpi1: st.plotly_chart(px.bar(df_sides, x="active_side", y="actual_duration_sec", color="active_side", text_auto=".1f", title="Durasi Aktual (detik)", template="plotly_white"), use_container_width=True)
-        with col_kpi2: st.plotly_chart(px.bar(df_sides, x="active_side", y="repetition", color="active_side", title="Total Repetisi", template="plotly_white"), use_container_width=True)
-
+    # Hanya render grafik jika ada skenario yang terpilih
+    if scen_tab2:
+        df_sides = df_subj2[df_subj2["scenario_label"] == scen_tab2]
+        if not df_sides.empty:
+            col_kpi1, col_kpi2 = st.columns(2)
+            with col_kpi1: 
+                st.plotly_chart(px.bar(df_sides, x="active_side", y="actual_duration_sec", color="active_side", text_auto=".1f", title="Durasi Aktual (detik)", template="plotly_white"), use_container_width=True)
+            with col_kpi2: 
+                st.plotly_chart(px.bar(df_sides, x="active_side", y="repetition", color="active_side", title="Total Repetisi", template="plotly_white"), use_container_width=True)
+                
 with tab3:
     st.subheader("Evaluasi Penurunan Amplitudo Antar-Repetisi")
     subj_tab3 = st.selectbox("Pilih Subjek:", sorted(df_summary["subject_name"].dropna().unique().tolist()), key="t3_s")
