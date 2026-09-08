@@ -158,21 +158,41 @@ with tab3:
         df_fatigue_raw["auto_rep"] = new_rep_starts.cumsum()
         
         # Ekstrak data yang hanya berada di fase gerakan aktif (RUN)
-        df_eval = df_fatigue_raw[is_run]
+        df_eval = df_fatigue_raw[is_run].copy()
 
         if len(df_eval["auto_rep"].unique()) >= 2:
             sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", VOLTAGE_COLS, index=0, key="s_fatigue")
+            df_eval["Repetisi_Label"] = "Repetisi " + df_eval["auto_rep"].astype(str)
             
+            st.markdown("#### 1. Visualisasi Sinyal per Repetisi (Fase Aktif)")
+            st.caption("Grafik ini menunjukkan bagaimana dasbor mendeteksi dan memisahkan setiap tarikan gerakan (fase RUN). Setiap warna mewakili satu tarikan yang berbeda.")
+            
+            # Grafik 1: Visualisasi "Gunung" (Raw Signal per Repetisi)
+            fig_raw_rep = px.line(
+                df_eval, x="timestamp", y=sensor_eval, color="Repetisi_Label",
+                title=f"Potongan Sinyal {sensor_eval.upper()} Berdasarkan Fase Gerak",
+                template="plotly_white", markers=True
+            )
+            fig_raw_rep.update_traces(line=dict(width=2))
+            st.plotly_chart(fig_raw_rep, use_container_width=True)
+
             # Hitung Max - Min untuk setiap repetisi
             rep_stats = df_eval.groupby("auto_rep")[sensor_eval].agg(Rentang_Amplitudo=lambda x: x.max() - x.min()).reset_index()
-            rep_stats["auto_rep"] = "Repetisi " + rep_stats["auto_rep"].astype(str)
+            rep_stats["Repetisi_Label"] = "Repetisi " + rep_stats["auto_rep"].astype(str)
             
-            st.plotly_chart(px.line(
-                rep_stats, x="auto_rep", y="Rentang_Amplitudo", 
+            st.markdown("#### 2. Evaluasi Penurunan Kinerja (Fatigue Trend)")
+            st.caption("Grafik ini mengukur tinggi 'gunung' dari grafik di atas (Nilai Maksimum dikurangi Nilai Minimum). Garis yang menurun mengindikasikan adanya kelelahan atau penurunan kekuatan otot.")
+            
+            # Grafik 2: Visualisasi Tren Kelelahan
+            fig_trend = px.line(
+                rep_stats, x="Repetisi_Label", y="Rentang_Amplitudo", 
                 markers=True, 
-                title=f"Tren Amplitudo {sensor_eval.upper()} per Repetisi (Deteksi Fase RUN)", 
+                title=f"Tren Rentang Amplitudo {sensor_eval.upper()} (Fase RUN)", 
                 template="plotly_white"
-            ), use_container_width=True)
+            )
+            fig_trend.update_traces(marker=dict(size=10, color="red"), line=dict(dash="dot", color="gray"))
+            st.plotly_chart(fig_trend, use_container_width=True)
+            
         else:
             st.info("Sistem mendeteksi kurang dari 2 fase gerak aktif (RUN) pada rentang waktu ini untuk dianalisis.")
     else:
