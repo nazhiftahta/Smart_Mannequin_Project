@@ -7,7 +7,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="Komparasi & Evaluasi - Smart Mannequin", layout="wide")
 
 VOLTAGE_COLS = [f"s{i}_volt" for i in range(1, 9)]
-RESISTANCE_COLS = [f"s{i}_res" for i in range(1, 9)]
+RESISTANCE_COLS = [f"s{i}" for i in range(1, 9)]
 ALL_SENSOR_COLS = VOLTAGE_COLS + RESISTANCE_COLS
 
 @st.cache_resource
