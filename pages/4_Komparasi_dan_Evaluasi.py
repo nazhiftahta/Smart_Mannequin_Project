@@ -6,6 +6,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Komparasi & Evaluasi - Smart Mannequin", layout="wide")
 VOLTAGE_COLS = [f"s{i}_volt" for i in range(1, 9)]
+RESISTANCE_COLS = [f"s{i}_res" for i in range(1, 9)]
+ALL_SENSOR_COLS = VOLTAGE_COLS + RESISTANCE_COLS
 
 @st.cache_resource
 def init_connection() -> Client:
@@ -60,13 +62,14 @@ def fetch_summary_data() -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def fetch_raw_subset(subject: str, scenario: str, side: str, start_t: str, end_t: str) -> pd.DataFrame:
     filters = {"subject_name": subject, "scenario_id": scenario, "active_side": side}
-    # Tambahkan 'state' ke dalam string cols
-    cols = "timestamp, repetition, state, " + ", ".join(VOLTAGE_COLS)
+    # Gunakan ALL_SENSOR_COLS agar tegangan dan resistansi ikut terpanggil
+    cols = "timestamp, repetition, state, " + ", ".join(ALL_SENSOR_COLS)
     rows = _fetch_paginated("raw_sensor_data", filters=filters, start_t=start_t, end_t=end_t, select_cols=cols)
     df = pd.DataFrame(rows)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        for col in VOLTAGE_COLS + ["repetition"]:
+        # Konversi numerik untuk semua kolom sensor
+        for col in ALL_SENSOR_COLS + ["repetition"]:
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
         return df.sort_values("timestamp").reset_index(drop=True)
     return df
@@ -92,8 +95,7 @@ with tab1:
     c_scen, c_side, c_sens = st.columns(3)
     
     with c_scen:
-        scenarios_all = sorted(df_summary["scenario_label"].dropna().unique().tolist())
-        scen_compare = st.selectbox("1. Pilih Skenario:", scenarios_all, key="cross_scen")
+        sensor_choice = st.selectbox("3. Pilih Sensor:", ALL_SENSOR_COLS, index=0, key="cross_sens")
     with c_side:
         df_scen_sub = df_summary[df_summary["scenario_label"] == scen_compare]
         sides_all = sorted(df_scen_sub["active_side"].dropna().unique().tolist())
@@ -105,21 +107,26 @@ with tab1:
     selected_subjects = st.multiselect("Pilih Subjek yang Ingin Dibandingkan:", avail_subjects, default=avail_subjects)
 
     if selected_subjects:
-        df_cross_summary = df_scen_sub[(df_scen_sub["active_side"] == side_compare) & (df_scen_sub["subject_name"].isin(selected_subjects))]
-        st.plotly_chart(px.bar(df_cross_summary, x="subject_name", y="actual_duration_sec", color="subject_name", text_auto=".1f", title=f"Durasi Aktual — {scen_compare} ({side_compare})", template="plotly_white"), use_container_width=True)
+        # (Kode px.bar durasi aktual ...)
 
         st.markdown(f"#### Penyelarasan Sinyal {sensor_choice.upper()} Antar-Individu")
         fig_cross_signals = go.Figure()
-
+    
+        # Buat label dinamis (V atau Ohm)
+        unit_label = "V" if "volt" in sensor_choice else "Ohm"
+        y_axis_name = "Tegangan (V)" if "volt" in sensor_choice else "Resistansi (Ohm)"
+    
         with st.spinner("Memuat dan menyelaraskan data sensor..."):
             for subj in selected_subjects:
                 subj_info = df_cross_summary[df_cross_summary["subject_name"] == subj].iloc[0]
                 df_raw_s = fetch_raw_subset(subj, subj_info["scenario_id"], side_compare, subj_info["start_time"], subj_info["end_time"])
                 if not df_raw_s.empty and sensor_choice in df_raw_s.columns:
                     elapsed_sec = (df_raw_s["timestamp"] - df_raw_s["timestamp"].iloc[0]).dt.total_seconds()
-                    fig_cross_signals.add_trace(go.Scatter(x=elapsed_sec, y=df_raw_s[sensor_choice], mode="lines", name=subj, hovertemplate="Detik %{x:.1f}: %{y:.2f} V"))
-
-        fig_cross_signals.update_layout(title=f"Kurva {sensor_choice.upper()} Skenario {scen_compare}", xaxis_title="Waktu Berjalan (s)", yaxis_title="Tegangan (V)", hovermode="x unified", template="plotly_white", height=480)
+                    # Pasang label dinamis di hovertemplate
+                    fig_cross_signals.add_trace(go.Scatter(x=elapsed_sec, y=df_raw_s[sensor_choice], mode="lines", name=subj, hovertemplate=f"Detik %{{x:.1f}}: %{{y:.2f}} {unit_label}"))
+    
+        # Pasang nama sumbu Y dinamis
+        fig_cross_signals.update_layout(title=f"Kurva {sensor_choice.upper()} Skenario {scen_compare}", xaxis_title="Waktu Berjalan (s)", yaxis_title=y_axis_name, hovermode="x unified", template="plotly_white", height=480)
         st.plotly_chart(fig_cross_signals, use_container_width=True)
 
 # ==============================================================================
@@ -200,7 +207,8 @@ with tab3:
         
         # --- MULAI PLOTTING ---
         if not df_eval.empty and len(df_eval["auto_rep"].unique()) >= 2:
-            sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", VOLTAGE_COLS, index=0, key="s_fatigue")
+            # Ubah VOLTAGE_COLS menjadi ALL_SENSOR_COLS
+            sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", ALL_SENSOR_COLS, index=0, key="s_fatigue")
             df_eval["Repetisi_Label"] = "Repetisi " + df_eval["auto_rep"].astype(str)
             
             st.markdown("#### 1. Visualisasi Sinyal per Repetisi (Fase Aktif)")
