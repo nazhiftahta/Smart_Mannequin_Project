@@ -1,7 +1,9 @@
+import time
 import os
 import streamlit as st
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 
 # Lokasi berkas diagram referensi sensor
 DIAGRAM_PATH_CANDIDATES = [
@@ -63,10 +65,10 @@ def render_sensor_placement():
             * **S8** : Lutut Belakang Kiri
             """)
 
-def analyze_chart_with_vision(fig, chart_title: str, stats_context: dict) -> str:
+def analyze_chart_with_vision(fig, chart_title: str, stats_context: dict, max_retries: int = 3) -> str:
     """
-    Mengirimkan grafik Plotly BESERTA diagram referensi pemasangan sensor (.jpeg)
-    ke Gemini 3.6 Flash untuk analisis biomekanika dan perangkat keras yang mendalam.
+    Mengirimkan grafik Plotly BESERTA diagram referensi pemasangan sensor
+    ke Gemini dengan proteksi auto-retry jika server mengalami overload (503).
     """
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
@@ -130,14 +132,24 @@ def analyze_chart_with_vision(fig, chart_title: str, stats_context: dict) -> str
     except Exception as e:
         prompt += f"\n\n[Catatan Sistem: Grafik pengujian tidak dapat diekspor menjadi gambar ({str(e)}), analisis dilakukan berbasis metrik ground-truth.]"
 
-    # 3. Masukkan Prompt Instruksi
     contents_payload.append(prompt)
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=contents_payload
-        )
-        return response.text
-    except Exception as err:
-        return f"⚠️ Gagal mendapatkan analisis dari AI: {str(err)}"
+    # 3. Eksekusi Panggilan API dengan Mekanisme Auto-Retry
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=contents_payload
+            )
+            return response.text
+        except APIError as api_err:
+            # Tangani khusus status 503 (Server Sibuk / Overload)
+            if api_err.code == 503 and attempt < max_retries:
+                wait_sec = attempt * 2  # Jeda bertahap: 2 detik, 4 detik
+                time.sleep(wait_sec)
+                continue
+            return f"⚠️ Server AI sedang kelebihan beban (503). Silakan tunggu sekitar 10–15 detik lalu klik tombol analisis kembali."
+        except Exception as err:
+            return f"⚠️ Gagal mendapatkan analisis dari AI: {str(err)}"
+
+    return "⚠️ Server AI sedang sibuk. Silakan coba kembali beberapa saat lagi."
