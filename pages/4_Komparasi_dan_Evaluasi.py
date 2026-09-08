@@ -148,52 +148,69 @@ with tab3:
     df_fatigue_meta = df_subj3[df_subj3["scenario_label"] == scen_tab3]
     side_tab3 = st.selectbox("Pilih Sisi Aktif:", sorted(df_fatigue_meta["active_side"].dropna().unique().tolist()), key="t3_side")
 
-    selected_f_row = df_fatigue_meta[df_fatigue_meta["active_side"] == side_tab3].iloc[0]
+    df_fatigue_side = df_fatigue_meta[df_fatigue_meta["active_side"] == side_tab3]
+    
+    # Pengaman transisi filter
+    if df_fatigue_side.empty:
+        st.warning("⏳ Menyesuaikan filter...")
+        st.stop()
+
+    selected_f_row = df_fatigue_side.iloc[0]
     df_fatigue_raw = fetch_raw_subset(subj_tab3, selected_f_row["scenario_id"], side_tab3, selected_f_row["start_time"], selected_f_row["end_time"])
     
-    if not df_fatigue_raw.empty and "state" in df_fatigue_raw.columns:
-        # Menghitung repetisi dinamis saat status berubah menjadi RUN
-        is_run = df_fatigue_raw["state"].str.upper() == "RUN"
-        new_rep_starts = is_run & (df_fatigue_raw["state"].shift(1).str.upper() != "RUN")
-        df_fatigue_raw["auto_rep"] = new_rep_starts.cumsum()
+    if not df_fatigue_raw.empty:
+        # 1. Bersihkan teks state dari spasi tak kasat mata & huruf besar/kecil
+        if "state" in df_fatigue_raw.columns:
+            clean_state = df_fatigue_raw["state"].fillna("").astype(str).str.strip().str.upper()
+            is_run = clean_state == "RUN"
+            new_rep_starts = is_run & (clean_state.shift(1) != "RUN")
+            df_fatigue_raw["auto_rep"] = new_rep_starts.cumsum()
+            df_eval = df_fatigue_raw[is_run].copy()
+        else:
+            df_eval = pd.DataFrame()
         
-        # Ekstrak data yang hanya berada di fase gerakan aktif (RUN)
-        df_eval = df_fatigue_raw[is_run].copy()
-
-        if len(df_eval["auto_rep"].unique()) >= 2:
+        # 2. FALLBACK PLAN: Jika pemotongan 'RUN' gagal atau tidak ada fase istirahat
+        if df_eval.empty or len(df_eval["auto_rep"].unique()) < 2:
+            expected_reps = selected_f_row.get("repetition", 0)
+            if pd.notna(expected_reps) and expected_reps >= 2:
+                # Potong data mentah secara merata berdasarkan waktu/baris (Misal dibagi 3)
+                df_eval = df_fatigue_raw.copy()
+                df_eval["auto_rep"] = pd.cut(df_eval.index, bins=int(expected_reps), labels=False) + 1
+            else:
+                df_eval = pd.DataFrame() 
+        
+        # --- MULAI PLOTTING ---
+        if not df_eval.empty and len(df_eval["auto_rep"].unique()) >= 2:
             sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", VOLTAGE_COLS, index=0, key="s_fatigue")
             df_eval["Repetisi_Label"] = "Repetisi " + df_eval["auto_rep"].astype(str)
             
             st.markdown("#### 1. Visualisasi Sinyal per Repetisi (Fase Aktif)")
-            st.caption("Grafik ini menunjukkan bagaimana dasbor mendeteksi dan memisahkan setiap tarikan gerakan (fase RUN). Setiap warna mewakili satu tarikan yang berbeda.")
+            st.caption("Grafik ini memisahkan setiap tarikan gerakan. Jika deteksi state gagal, sistem akan membagi data secara proporsional berdasarkan durasi.")
             
-            # Grafik 1: Visualisasi "Gunung" (Raw Signal per Repetisi)
             fig_raw_rep = px.line(
                 df_eval, x="timestamp", y=sensor_eval, color="Repetisi_Label",
                 title=f"Potongan Sinyal {sensor_eval.upper()} Berdasarkan Fase Gerak",
-                template="plotly_white", markers=True
+                template="plotly_white"
             )
             fig_raw_rep.update_traces(line=dict(width=2))
             st.plotly_chart(fig_raw_rep, use_container_width=True)
 
-            # Hitung Max - Min untuk setiap repetisi
             rep_stats = df_eval.groupby("auto_rep")[sensor_eval].agg(Rentang_Amplitudo=lambda x: x.max() - x.min()).reset_index()
             rep_stats["Repetisi_Label"] = "Repetisi " + rep_stats["auto_rep"].astype(str)
             
             st.markdown("#### 2. Evaluasi Penurunan Kinerja (Fatigue Trend)")
-            st.caption("Grafik ini mengukur tinggi 'gunung' dari grafik di atas (Nilai Maksimum dikurangi Nilai Minimum). Garis yang menurun mengindikasikan adanya kelelahan atau penurunan kekuatan otot.")
+            st.caption("Grafik ini mengukur rentang amplitudo (Maksimum - Minimum) dari tiap tarikan. Garis menurun menunjukkan pelemahan otot.")
             
-            # Grafik 2: Visualisasi Tren Kelelahan
             fig_trend = px.line(
                 rep_stats, x="Repetisi_Label", y="Rentang_Amplitudo", 
                 markers=True, 
-                title=f"Tren Rentang Amplitudo {sensor_eval.upper()} (Fase RUN)", 
+                title=f"Tren Rentang Amplitudo {sensor_eval.upper()}", 
                 template="plotly_white"
             )
             fig_trend.update_traces(marker=dict(size=10, color="red"), line=dict(dash="dot", color="gray"))
             st.plotly_chart(fig_trend, use_container_width=True)
             
         else:
-            st.info("Sistem mendeteksi kurang dari 2 fase gerak aktif (RUN) pada rentang waktu ini untuk dianalisis.")
+            st.info("Tidak dapat memisahkan repetisi. Pastikan skenario ini memang memiliki instruksi repetisi > 1.")
     else:
-        st.warning("Data mentah kosong atau kolom 'state' belum tersedia.")
+        st.warning("Data mentah sensor tidak ditemukan untuk rentang waktu sesi ini.")
