@@ -171,13 +171,15 @@ with tab3:
         
         # 2. FALLBACK PLAN: Jika pemotongan 'RUN' gagal atau tidak ada fase istirahat
         if df_eval.empty or len(df_eval["auto_rep"].unique()) < 2:
-            expected_reps = selected_f_row.get("repetition", 0)
+            # Konversi paksa ke tipe data numerik agar bisa dibandingkan
+            expected_reps = pd.to_numeric(selected_f_row.get("repetition", 0), errors="coerce")
+            
             if pd.notna(expected_reps) and expected_reps >= 2:
-                # Potong data mentah secara merata berdasarkan waktu/baris (Misal dibagi 3)
+                # Potong data mentah secara merata berdasarkan waktu/baris
                 df_eval = df_fatigue_raw.copy()
                 df_eval["auto_rep"] = pd.cut(df_eval.index, bins=int(expected_reps), labels=False) + 1
             else:
-                df_eval = pd.DataFrame() 
+                df_eval = pd.DataFrame()
         
         # --- MULAI PLOTTING ---
         if not df_eval.empty and len(df_eval["auto_rep"].unique()) >= 2:
