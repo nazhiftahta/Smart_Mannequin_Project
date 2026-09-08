@@ -60,7 +60,8 @@ def fetch_summary_data() -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def fetch_raw_subset(subject: str, scenario: str, side: str, start_t: str, end_t: str) -> pd.DataFrame:
     filters = {"subject_name": subject, "scenario_id": scenario, "active_side": side}
-    cols = "timestamp, repetition, " + ", ".join(VOLTAGE_COLS)
+    # Tambahkan 'state' ke dalam string cols
+    cols = "timestamp, repetition, state, " + ", ".join(VOLTAGE_COLS)
     rows = _fetch_paginated("raw_sensor_data", filters=filters, start_t=start_t, end_t=end_t, select_cols=cols)
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -150,10 +151,29 @@ with tab3:
     selected_f_row = df_fatigue_meta[df_fatigue_meta["active_side"] == side_tab3].iloc[0]
     df_fatigue_raw = fetch_raw_subset(subj_tab3, selected_f_row["scenario_id"], side_tab3, selected_f_row["start_time"], selected_f_row["end_time"])
     
-    if not df_fatigue_raw.empty and "repetition" in df_fatigue_raw.columns:
-        if len(df_fatigue_raw["repetition"].dropna().unique()) >= 2:
+    if not df_fatigue_raw.empty and "state" in df_fatigue_raw.columns:
+        # Menghitung repetisi dinamis saat status berubah menjadi RUN
+        is_run = df_fatigue_raw["state"].str.upper() == "RUN"
+        new_rep_starts = is_run & (df_fatigue_raw["state"].shift(1).str.upper() != "RUN")
+        df_fatigue_raw["auto_rep"] = new_rep_starts.cumsum()
+        
+        # Ekstrak data yang hanya berada di fase gerakan aktif (RUN)
+        df_eval = df_fatigue_raw[is_run]
+
+        if len(df_eval["auto_rep"].unique()) >= 2:
             sensor_eval = st.selectbox("Pilih Sensor Evaluasi:", VOLTAGE_COLS, index=0, key="s_fatigue")
-            rep_stats = df_fatigue_raw.groupby("repetition")[sensor_eval].agg(Rentang_Amplitudo=lambda x: x.max() - x.min()).reset_index()
-            st.plotly_chart(px.line(rep_stats, x="repetition", y="Rentang_Amplitudo", markers=True, title=f"Tren Amplitudo {sensor_eval.upper()} per Repetisi", template="plotly_white"), use_container_width=True)
+            
+            # Hitung Max - Min untuk setiap repetisi
+            rep_stats = df_eval.groupby("auto_rep")[sensor_eval].agg(Rentang_Amplitudo=lambda x: x.max() - x.min()).reset_index()
+            rep_stats["auto_rep"] = "Repetisi " + rep_stats["auto_rep"].astype(str)
+            
+            st.plotly_chart(px.line(
+                rep_stats, x="auto_rep", y="Rentang_Amplitudo", 
+                markers=True, 
+                title=f"Tren Amplitudo {sensor_eval.upper()} per Repetisi (Deteksi Fase RUN)", 
+                template="plotly_white"
+            ), use_container_width=True)
         else:
-            st.info("Jumlah repetisi kurang dari 2 untuk dianalisis.")
+            st.info("Sistem mendeteksi kurang dari 2 fase gerak aktif (RUN) pada rentang waktu ini untuk dianalisis.")
+    else:
+        st.warning("Data mentah kosong atau kolom 'state' belum tersedia.")
