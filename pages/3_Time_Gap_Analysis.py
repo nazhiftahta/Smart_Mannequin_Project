@@ -29,7 +29,6 @@ def _fetch_paginated(table_name: str, filters: dict, start_t: str = None, end_t:
         if start_t and end_t:
             query = query.gte("timestamp", start_t).lte("timestamp", end_t)
             
-        # Perbaikan: Hanya jalankan pengurutan jika parameter order_col diisi
         if order_col:
             query = query.order(order_col)
             
@@ -48,30 +47,34 @@ def _fetch_paginated(table_name: str, filters: dict, start_t: str = None, end_t:
 
 @st.cache_data(ttl=300)
 def fetch_summary_data() -> pd.DataFrame:
-    # Memanggil order_col="start_time" agar sesuai dengan kolom tabel summary
     rows = _fetch_paginated("summary_session_data", filters={}, order_col="start_time")
     df = pd.DataFrame(rows)
     if not df.empty:
-        labels = []
-        for _, row in df.iterrows():
-            parts = []
-            for col in ["target_duration", "angle", "repetition"]:
-                if col in row:
-                    row[col] = pd.to_numeric(row[col], errors="coerce")
-            if pd.notna(row.get("angle")): parts.append(f"Sudut: {row['angle']:g}°")
-            if pd.notna(row.get("target_duration")): parts.append(f"Dur: {row['target_duration']:g}s")
-            if pd.notna(row.get("repetition")): parts.append(f"Rep: {row['repetition']:g}x")
+        # Buat pemetaan kategori Bagian Tubuh berdasarkan awalan scenario_id
+        def map_body_part(sid):
+            if pd.isna(sid): return "Lainnya"
+            sid_upper = str(sid).upper()
+            if sid_upper.startswith('B'): return "Bahu (Semua B)"
+            elif sid_upper.startswith('S'): return "Siku (Semua S)"
+            elif sid_upper.startswith('P'): return "Pinggang (Semua P)"
+            elif sid_upper.startswith('L'): return "Lutut (Semua L)"
+            else: return "Kalibrasi / Lainnya"
             
-            scen_id = str(row.get("scenario_id", ""))
-            labels.append(f"{scen_id} ({', '.join(parts)})" if parts else scen_id)
-        df["scenario_label"] = labels
+        df["body_part"] = df["scenario_id"].apply(map_body_part)
     return df
 
 @st.cache_data(ttl=300)
-def fetch_raw_timestamps(subject: str, scenario: str, side: str, start_t: str, end_t: str) -> pd.DataFrame:
-    filters = {"subject_name": subject, "scenario_id": scenario, "active_side": side}
-    # Memanggil order_col="timestamp" karena ini untuk raw_sensor_data
-    rows = _fetch_paginated("raw_sensor_data", filters=filters, start_t=start_t, end_t=end_t, select_cols="id, timestamp, state, s1_volt", order_col="timestamp")
+def fetch_raw_timestamps_macro(subject: str, start_t: str, end_t: str) -> pd.DataFrame:
+    # Hanya filter by Subject + Time Range agar semua jeda transisi antar-skenario ikut terambil
+    filters = {"subject_name": subject}
+    rows = _fetch_paginated(
+        "raw_sensor_data", 
+        filters=filters, 
+        start_t=start_t, 
+        end_t=end_t, 
+        select_cols="id, timestamp, state, scenario_id", 
+        order_col="timestamp"
+    )
     df = pd.DataFrame(rows)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -79,7 +82,7 @@ def fetch_raw_timestamps(subject: str, scenario: str, side: str, start_t: str, e
     return df
 
 st.title("Diagnostik Jeda Waktu (Time Gap Analysis)")
-st.caption("Deteksi otomatis anomali jeda waktu pengiriman data Arduino.")
+st.caption("Deteksi otomatis anomali jeda waktu pengiriman data Arduino secara makro per bagian tubuh.")
 
 summary_df = fetch_summary_data()
 if summary_df.empty:
@@ -92,29 +95,24 @@ subjects = sorted(summary_df["subject_name"].dropna().unique().tolist())
 selected_subject = st.sidebar.selectbox("1. Pilih Subjek", subjects)
 
 df_by_subj = summary_df[summary_df["subject_name"] == selected_subject]
-scenarios = df_by_subj["scenario_label"].dropna().unique().tolist()
-selected_label = st.sidebar.selectbox("2. Pilih Skenario", scenarios)
+body_parts = sorted(df_by_subj["body_part"].dropna().unique().tolist())
+selected_part = st.sidebar.selectbox("2. Pilih Bagian Tubuh", body_parts)
 
-df_by_scen = df_by_subj[df_by_subj["scenario_label"] == selected_label]
-sides = sorted(df_by_scen["active_side"].dropna().unique().tolist())
-selected_side = st.sidebar.selectbox("3. Pilih Sisi Aktif", sides)
+df_filtered_part = df_by_subj[df_by_subj["body_part"] == selected_part]
 
-df_filtered_side = df_by_scen[df_by_scen["active_side"] == selected_side]
-
-if df_filtered_side.empty:
+if df_filtered_part.empty:
     st.warning("⏳ Menyesuaikan filter...")
     st.stop()
 
-selected_row = df_filtered_side.iloc[0]
-real_scenario_id = selected_row["scenario_id"]
-start_time_val = selected_row["start_time"]
-end_time_val = selected_row["end_time"]
+# Ambil rentang waktu terluar (Absolute Min & Max) untuk merangkum seluruh skenario di bagian tubuh tersebut
+start_time_val = df_filtered_part["start_time"].dropna().min()
+end_time_val = df_filtered_part["end_time"].dropna().max()
 
-with st.spinner("Menganalisis urutan waktu sensor..."):
-    df_time = fetch_raw_timestamps(selected_subject, real_scenario_id, selected_side, start_time_val, end_time_val)
+with st.spinner(f"Menganalisis urutan waktu sensor untuk {selected_part}..."):
+    df_time = fetch_raw_timestamps_macro(selected_subject, start_time_val, end_time_val)
 
 if df_time.empty:
-    st.warning("Data mentah untuk kombinasi ini tidak ditemukan.")
+    st.warning("Data mentah untuk rentang waktu ini tidak ditemukan.")
     st.stop()
 
 st.subheader("Konfigurasi Ambang Batas Deteksi")
@@ -145,7 +143,7 @@ else:
 st.markdown("#### Grafik Selisih Waktu Antar-Baris (Delta T)")
 fig_gap = px.line(
     df_time, x="timestamp", y="time_diff_sec",
-    title=f"Delta Waktu Antar-Sampel (Ambang Batas: {gap_threshold_sec}s)",
+    title=f"Delta Waktu Antar-Sampel — {selected_subject} ({selected_part})",
     labels={"timestamp": "Waktu", "time_diff_sec": "Jeda (s)"}, template="plotly_white"
 )
 fig_gap.add_hline(y=gap_threshold_sec, line_dash="dash", line_color="red", annotation_text=f"Threshold ({gap_threshold_sec}s)")
@@ -160,11 +158,16 @@ if total_gaps > 0:
     for idx, row in gap_events.iterrows():
         prev_idx = idx - 1
         start_gap = df_time.loc[prev_idx, "timestamp"] if prev_idx in df_time.index else row["timestamp"]
-        diagnosis = "Istirahat / Transisi Terencana" if str(row.get("state", "UNKNOWN")).upper() in ["IDLE", "REST"] else "Potensi Delay Serial"
+        diagnosis = "Istirahat Antar-Skenario / Transisi" if str(row.get("state", "UNKNOWN")).upper() in ["IDLE", "REST"] else "Potensi Delay Serial"
+        
         log_records.append({
-            "Waktu Mulai Berhenti": start_gap, "Waktu Lanjut Kembali": row["timestamp"],
-            "Durasi Jeda (s)": round(row["time_diff_sec"], 2), "Status State": row.get("state", "UNKNOWN"), "Indikasi Lapangan": diagnosis
+            "Skenario Terdekat": row.get("scenario_id", "Transisi"),
+            "Waktu Mulai Berhenti": start_gap, 
+            "Waktu Lanjut Kembali": row["timestamp"],
+            "Durasi Jeda (s)": round(row["time_diff_sec"], 2), 
+            "Status State": row.get("state", "UNKNOWN"), 
+            "Indikasi Lapangan": diagnosis
         })
     st.dataframe(pd.DataFrame(log_records), use_container_width=True)
 else:
-    st.success("Aliran data sangat konsisten. Tidak ditemukan jeda waktu di atas ambang batas yang ditentukan.")
+    st.success("Aliran data konsisten. Tidak ditemukan jeda waktu di atas ambang batas yang ditentukan.")
