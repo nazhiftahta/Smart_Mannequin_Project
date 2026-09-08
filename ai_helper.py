@@ -41,12 +41,12 @@ def render_sensor_placement():
             st.markdown("#### 🦾 Kalibrasi, Bahu, & Siku (F, B, E)")
             st.markdown("""
             * **S1** : Bahu Kanan Depan
-            * **S2** : Bahu Kanan Belakang
-            * **S3** : Bahu Kiri Depan
-            * **S4** : Bahu Kiri Belakang
-            * **S5** : Bagian Dalam Siku Kanan
-            * **S6** : Bagian Luar Siku Kanan
-            * **S7** : Bagian Dalam Siku Kiri
+            * **S2** : Bahu Kiri Depan
+            * **S3** : Bagian Dalam Siku Kanan
+            * **S4** : Bagian Dalam Siku Kiri
+            * **S5** : Bahu Kanan Belakang
+            * **S6** : Bahu Kiri Belakang
+            * **S7** : Bagian Luar Siku Kanan
             * **S8** : Bagian Luar Siku Kiri
             """)
             
@@ -55,11 +55,11 @@ def render_sensor_placement():
             st.markdown("""
             * **S1** : Pinggang Samping Kanan
             * **S2** : Pinggang Samping Kiri
-            * **S3** : Pinggang Belakang (Lumbar) Kanan
-            * **S4** : Pinggang Belakang (Lumbar) Kiri
-            * **S5** : Lutut Depan Kanan
-            * **S6** : Lutut Belakang Kanan
-            * **S7** : Lutut Depan Kiri
+            * **S3** : Lutut Depan Kanan
+            * **S4** : Lutut Depan Kiri
+            * **S5** : Pinggang Belakang (Lumbar) Kanan
+            * **S6** : Pinggang Belakang (Lumbar) Kiri
+            * **S7** : Lutut Belakang Kanan
             * **S8** : Lutut Belakang Kiri
             """)
 
