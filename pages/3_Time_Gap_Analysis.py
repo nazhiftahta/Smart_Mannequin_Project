@@ -50,22 +50,22 @@ def fetch_summary_data() -> pd.DataFrame:
     rows = _fetch_paginated("summary_session_data", filters={}, order_col="start_time")
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Buat pemetaan kategori Bagian Tubuh berdasarkan awalan scenario_id
+        # Perbaikan: Pemetaan bagian tubuh berdasarkan ID yang benar (B, E, P, K, F)
         def map_body_part(sid):
             if pd.isna(sid): return "Lainnya"
             sid_upper = str(sid).upper()
             if sid_upper.startswith('B'): return "Bahu (Semua B)"
-            elif sid_upper.startswith('S'): return "Siku (Semua S)"
+            elif sid_upper.startswith('E'): return "Siku (Semua E)"
             elif sid_upper.startswith('P'): return "Pinggang (Semua P)"
-            elif sid_upper.startswith('L'): return "Lutut (Semua L)"
-            else: return "Kalibrasi / Lainnya"
+            elif sid_upper.startswith('K'): return "Lutut (Semua K)"
+            elif sid_upper.startswith('F'): return "Kalibrasi (Semua F)"
+            else: return "Lainnya"
             
         df["body_part"] = df["scenario_id"].apply(map_body_part)
     return df
 
 @st.cache_data(ttl=300)
 def fetch_raw_timestamps_macro(subject: str, start_t: str, end_t: str) -> pd.DataFrame:
-    # Hanya filter by Subject + Time Range agar semua jeda transisi antar-skenario ikut terambil
     filters = {"subject_name": subject}
     rows = _fetch_paginated(
         "raw_sensor_data", 
@@ -95,16 +95,23 @@ subjects = sorted(summary_df["subject_name"].dropna().unique().tolist())
 selected_subject = st.sidebar.selectbox("1. Pilih Subjek", subjects)
 
 df_by_subj = summary_df[summary_df["subject_name"] == selected_subject]
-body_parts = sorted(df_by_subj["body_part"].dropna().unique().tolist())
-selected_part = st.sidebar.selectbox("2. Pilih Bagian Tubuh", body_parts)
+
+# Patenkan daftar bagian tubuh yang benar agar selalu muncul di dropdown
+ALL_BODY_PARTS = [
+    "Bahu (Semua B)", 
+    "Siku (Semua E)", 
+    "Pinggang (Semua P)", 
+    "Lutut (Semua K)", 
+    "Kalibrasi (Semua F)"
+]
+selected_part = st.sidebar.selectbox("2. Pilih Bagian Tubuh", ALL_BODY_PARTS)
 
 df_filtered_part = df_by_subj[df_by_subj["body_part"] == selected_part]
 
 if df_filtered_part.empty:
-    st.warning("⏳ Menyesuaikan filter...")
+    st.warning(f"Data eksperimen untuk {selected_part} belum tersedia pada subjek {selected_subject}.")
     st.stop()
 
-# Ambil rentang waktu terluar (Absolute Min & Max) untuk merangkum seluruh skenario di bagian tubuh tersebut
 start_time_val = df_filtered_part["start_time"].dropna().min()
 end_time_val = df_filtered_part["end_time"].dropna().max()
 
