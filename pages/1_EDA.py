@@ -66,6 +66,9 @@ def fetch_raw_sample(subject: str) -> pd.DataFrame:
 st.title("Exploratory Data Analysis")
 st.caption("Eksplorasi statistik agregat, audit kualitas pembersihan data, dan karakteristik korelasi sensor.")
 
+# Panduan penempatan sensor tepat di bawah judul utama
+render_sensor_placement()
+
 with st.spinner("Memuat data sesi..."):
     df_summary = fetch_summary_data()
 
@@ -221,8 +224,6 @@ st.markdown("---")
 st.subheader("4. Matriks Korelasi Antar-Channel Sensor (8-Channel)")
 st.caption("Dihitung dari sampel 10.000 titik data mentah per subjek untuk mendeteksi hubungan linier antar-sensor.")
 
-render_sensor_placement()
-
 if not df_summary.empty and "subject_name" in df_summary.columns:
     list_subjects = sorted(df_summary["subject_name"].dropna().unique().tolist())
     
@@ -269,16 +270,20 @@ if not df_summary.empty and "subject_name" in df_summary.columns:
 
             if btn_corr_ai:
                 with st.spinner("🤖 AI sedang membaca pola korelasi dan mengevaluasi tata letak sensor di mannequin..."):
-                    # Ekstrak pasangan sensor penting
                     corr_unstack = corr_matrix.unstack()
                     corr_pairs = corr_unstack[corr_unstack.index.get_level_values(0) != corr_unstack.index.get_level_values(1)]
                     
                     highest_pos = corr_pairs.sort_values(ascending=False).head(6)
                     lowest_or_neg = corr_pairs.sort_values().head(6)
 
-                    # Ambil sampel unik (lewati duplikat A-B dan B-A)
-                    top_pos_dict = {f"{k[0].upper()} & {k[1].upper()}": round(float(v), 3) for k, v in highest_pos.items()}[::2]
-                    top_neg_dict = {f"{k[0].upper()} & {k[1].upper()}": round(float(v), 3) for k, v in lowest_or_neg.items()}[::2]
+                    top_pos_dict = {
+                        f"{k[0].upper()} & {k[1].upper()}": round(float(v), 3) 
+                        for k, v in list(highest_pos.items())[::2]
+                    }
+                    top_neg_dict = {
+                        f"{k[0].upper()} & {k[1].upper()}": round(float(v), 3) 
+                        for k, v in list(lowest_or_neg.items())[::2]
+                    }
 
                     corr_payload = {
                         "subjek": selected_subject,
